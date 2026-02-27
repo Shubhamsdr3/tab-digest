@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Tab Digest</h1>
+      <p class="subtitle">Archive tabs unused in the last 24 hours</p>
+    </header>
+
+    <section class="stats">
+      <div class="stat-card">
+        <span id="stale-count" class="stat-number">—</span>
+        <span class="stat-label">Unused tabs (>24h)</span>
+      </div>
+      <div class="stat-card">
+        <span id="total-count" class="stat-number">—</span>
+        <span class="stat-label">Total open tabs</span>
+      </div>
+    </section>
+
+    <div class="toggle-row">
+      <span class="toggle-label">Daily auto-cleanup</span>
+      <label class="switch">
+        <input type="checkbox" id="auto-toggle" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <button id="archive-btn" class="btn primary" disabled>
+      Archive & Close Now
+    </button>
+    <button id="view-digest" class="btn outline">
+      View Past Digests
+    </button>
+
+    <section class="protected-section">
+      <h2>Protected Sites</h2>
+      <p class="hint">Tabs matching these will never be closed</p>
+      <div class="add-row">
+        <input
+          id="site-input"
+          type="text"
+          placeholder="e.g. github.com, slack"
+          spellcheck="false"
+        />
+        <button id="add-site" class="btn small primary">Add</button>
+      </div>
+      <ul id="site-list"></ul>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
