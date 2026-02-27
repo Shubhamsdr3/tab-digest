@@ -44,6 +44,7 @@
       overflow: hidden;
       margin-bottom: 12px;
       transition: box-shadow 0.15s;
+      cursor: pointer;
     }
 
     .card:hover {
@@ -166,15 +167,12 @@
     .card-url {
       font-size: 12px;
       color: #6366f1;
-      text-decoration: none;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       display: block;
       margin-top: 4px;
     }
-
-    .card-url:hover { text-decoration: underline; }
 
     .card-meta {
       display: flex;
@@ -214,51 +212,163 @@
       flex-shrink: 0;
     }
 
-    /* ---------- Past digests ---------- */
-    #past-digests {
-      display: none;
-      margin-top: 40px;
+    /* ---------- Digest sections ---------- */
+    .digest-section {
+      margin-bottom: 20px;
     }
 
-    #past-digests > h2 {
-      font-size: 18px;
-      font-weight: 700;
-      color: #0f172a;
-      margin-bottom: 16px;
+    .digest-section.removing {
+      opacity: 0;
+      max-height: 0;
+      margin-bottom: 0;
+      overflow: hidden;
+      transition: opacity 0.25s, max-height 0.4s ease-out, margin-bottom 0.4s;
     }
 
-    .past-section {
-      margin-bottom: 16px;
-    }
-
-    .past-header {
+    .digest-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       background: #fff;
       border: 1px solid #e2e8f0;
       border-radius: 10px;
-      padding: 12px 16px;
-      font-size: 13px;
-      color: #475569;
-      font-weight: 500;
+      padding: 14px 16px;
+      gap: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
     }
 
-    .past-toggle {
+    .digest-header:hover {
+      background: #f8fafc;
+    }
+
+    .digest-chevron {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      color: #94a3b8;
+      transition: transform 0.2s;
+    }
+
+    .digest-section.expanded .digest-chevron {
+      transform: rotate(90deg);
+    }
+
+    .digest-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .digest-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .digest-date {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+
+    .digest-count {
+      flex-shrink: 0;
       background: #eef2ff;
       color: #6366f1;
-      border: none;
-      border-radius: 6px;
-      padding: 4px 12px;
       font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
     }
 
-    .past-toggle:hover { background: #e0e7ff; }
+    .digest-delete-btn {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #f8fafc;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ef4444;
+      transition: background 0.15s, border-color 0.15s;
+    }
 
-    .past-list {
-      margin-top: 8px;
+    .digest-delete-btn:hover {
+      background: #fef2f2;
+      border-color: #fca5a5;
+    }
+
+    .digest-delete-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .digest-body {
+      display: none;
+      padding-top: 10px;
+    }
+
+    .digest-section.expanded .digest-body {
+      display: block;
+    }
+
+    /* ---------- Export bar ---------- */
+    .export-bar {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .export-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border: none;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s;
+      background: #16a34a;
+      color: #fff;
+    }
+
+    .export-btn:hover {
+      background: #15803d;
+      box-shadow: 0 2px 8px rgba(22, 163, 74, 0.25);
+    }
+
+    .export-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .export-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .export-status {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .export-status a {
+      color: #6366f1;
+      text-decoration: none;
+    }
+
+    .export-status a:hover {
+      text-decoration: underline;
+    }
+
+    .export-status.error {
+      color: #ef4444;
     }
 
     /* ---------- Other ---------- */
@@ -292,17 +402,22 @@
       <p id="subtitle"></p>
     </header>
 
+    <div id="export-bar" class="export-bar" style="display:none">
+      <span id="export-status" class="export-status"></span>
+      <button id="export-btn" class="export-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+        Export to Google Sheets
+      </button>
+    </div>
+
     <div id="loading">Loading...</div>
     <div id="empty-state">No archived tabs yet. Use the extension to archive unused tabs.</div>
-    <div id="tab-list"></div>
-
-    <div id="past-digests">
-      <h2>Past Digests</h2>
-    </div>
+    <div id="digests"></div>
 
     <div class="footer">Tab Digest</div>
   </div>
 
+  <script src="sheets-export.js"></script>
   <script src="digest.js"></script>
 </body>
 </html>

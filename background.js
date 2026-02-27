@@ -9,9 +9,9 @@ chrome.runtime.onInstalled.addListener(async () => {
   await snapshotExistingTabs();
 
   // Default auto-cleanup to ON for new installs
-  const { autoCleanup } = await chrome.storage.local.get("autoCleanup");
+  const { autoCleanup } = await chrome.storage.sync.get("autoCleanup");
   if (autoCleanup === undefined) {
-    await chrome.storage.local.set({ autoCleanup: true });
+    await chrome.storage.sync.set({ autoCleanup: true });
   }
 
   await syncAlarm();
@@ -21,8 +21,15 @@ chrome.runtime.onInstalled.addListener(async () => {
 // Re-sync alarm on browser startup (service worker may have been killed)
 chrome.runtime.onStartup.addListener(syncAlarm);
 
+// Re-sync alarm when settings change from another machine
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "sync" && changes.autoCleanup) {
+    syncAlarm();
+  }
+});
+
 async function syncAlarm() {
-  const { autoCleanup = true } = await chrome.storage.local.get("autoCleanup");
+  const { autoCleanup = true } = await chrome.storage.sync.get("autoCleanup");
 
   if (autoCleanup) {
     const existing = await chrome.alarms.get(ALARM_NAME);
@@ -77,7 +84,7 @@ function isProtected(url, protectedSites) {
 
 async function getStaleTabs() {
   const allTabs = await chrome.tabs.query({});
-  const { protectedSites = [] } = await chrome.storage.local.get("protectedSites");
+  const { protectedSites = [] } = await chrome.storage.sync.get("protectedSites");
   const now = Date.now();
 
   return allTabs.filter((tab) => {
@@ -158,7 +165,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.action === "setAutoCleanup") {
     (async () => {
-      await chrome.storage.local.set({ autoCleanup: msg.enabled });
+      await chrome.storage.sync.set({ autoCleanup: msg.enabled });
       await syncAlarm();
       sendResponse({ ok: true });
     })();
@@ -166,7 +173,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.action === "getAutoCleanup") {
-    chrome.storage.local.get("autoCleanup", (data) => {
+    chrome.storage.sync.get("autoCleanup", (data) => {
       sendResponse({ enabled: data.autoCleanup !== false });
     });
     return true;

@@ -2,12 +2,19 @@
   "manifest_version": 3,
   "name": "Tab Digest",
   "description": "Archives and closes tabs unused for over 24 hours.",
-  "version": "1.0",
+  "version": "1.1",
   "permissions": [
     "tabs",
     "storage",
-    "alarms"
+    "alarms",
+    "identity"
   ],
+  "oauth2": {
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets"
+    ]
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

@@ -62,7 +62,7 @@ async function addSite() {
   const site = raw.replace(/^https?:\/\//, "").replace(/\/+$/, "");
   if (!site) return;
 
-  const { protectedSites = [] } = await chrome.storage.local.get("protectedSites");
+  const { protectedSites = [] } = await chrome.storage.sync.get("protectedSites");
 
   if (protectedSites.includes(site)) {
     siteInput.value = "";
@@ -70,7 +70,7 @@ async function addSite() {
   }
 
   protectedSites.push(site);
-  await chrome.storage.local.set({ protectedSites });
+  await chrome.storage.sync.set({ protectedSites });
 
   siteInput.value = "";
   await renderProtectedSites();
@@ -78,16 +78,16 @@ async function addSite() {
 }
 
 async function removeSite(site) {
-  const { protectedSites = [] } = await chrome.storage.local.get("protectedSites");
+  const { protectedSites = [] } = await chrome.storage.sync.get("protectedSites");
   const updated = protectedSites.filter((s) => s !== site);
-  await chrome.storage.local.set({ protectedSites: updated });
+  await chrome.storage.sync.set({ protectedSites: updated });
 
   await renderProtectedSites();
   await refreshStats();
 }
 
 async function renderProtectedSites() {
-  const { protectedSites = [] } = await chrome.storage.local.get("protectedSites");
+  const { protectedSites = [] } = await chrome.storage.sync.get("protectedSites");
   siteListEl.innerHTML = "";
 
   if (protectedSites.length === 0) {

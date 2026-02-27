@@ -5,13 +5,18 @@ const ICONS = {
   copy: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>`,
   check: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>`,
   cross: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>`,
+  chevron: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>`,
+  trash: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25ZM4.104 5.168a.75.75 0 1 0-1.49.164l.798 7.246A1.75 1.75 0 0 0 5.152 14h5.696a1.75 1.75 0 0 0 1.74-1.422l.798-7.246a.75.75 0 1 0-1.49-.164l-.798 7.245a.25.25 0 0 1-.249.203H5.152a.25.25 0 0 1-.25-.203Z"/></svg>`,
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
   const loadingEl = document.getElementById("loading");
   const emptyEl = document.getElementById("empty-state");
-  const listEl = document.getElementById("tab-list");
+  const digestsEl = document.getElementById("digests");
   const subtitleEl = document.getElementById("subtitle");
+  const exportBar = document.getElementById("export-bar");
+  const exportBtn = document.getElementById("export-btn");
+  const exportStatus = document.getElementById("export-status");
 
   const { archivedDigests = [] } = await chrome.storage.local.get("archivedDigests");
 
@@ -22,18 +27,106 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
-  const latest = archivedDigests[0];
-  const tabs = latest.tabs;
+  const totalTabs = archivedDigests.reduce((sum, d) => sum + d.tabs.length, 0);
+  subtitleEl.textContent = `${archivedDigests.length} digest(s), ${totalTabs} tab(s) archived`;
+  exportBar.style.display = "flex";
 
-  subtitleEl.textContent =
-    `${tabs.length} unused tab(s) archived on ${formatDate(latest.date)}`;
+  const { sheetsExportMeta } = await chrome.storage.local.get("sheetsExportMeta");
+  if (sheetsExportMeta?.spreadsheetId) {
+    exportStatus.innerHTML = `Last export: ${new Date(sheetsExportMeta.lastExport).toLocaleDateString()} · <a href="https://docs.google.com/spreadsheets/d/${sheetsExportMeta.spreadsheetId}" target="_blank">Open Sheet</a>`;
+  }
 
-  renderTabs(listEl, tabs, 0);
+  exportBtn.addEventListener("click", async () => {
+    exportBtn.disabled = true;
+    exportBtn.textContent = "Exporting…";
+    exportStatus.textContent = "";
+    exportStatus.className = "export-status";
 
-  if (archivedDigests.length > 1) {
-    renderPastDigests(archivedDigests.slice(1));
+    try {
+      const result = await exportToSheets(archivedDigests);
+      exportStatus.innerHTML = `Exported ${result.tabCount} tab(s) · <a href="${result.url}" target="_blank">Open Sheet</a>`;
+      exportBtn.textContent = "Exported!";
+      setTimeout(() => {
+        exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> Export to Google Sheets`;
+        exportBtn.disabled = false;
+      }, 2000);
+    } catch (err) {
+      exportStatus.textContent = err.message;
+      exportStatus.className = "export-status error";
+      exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> Export to Google Sheets`;
+      exportBtn.disabled = false;
+    }
+  });
+
+  for (let i = 0; i < archivedDigests.length; i++) {
+    renderDigestSection(digestsEl, archivedDigests[i], i, i === 0);
   }
 });
+
+function renderDigestSection(container, digest, digestIndex, expandByDefault) {
+  const section = document.createElement("div");
+  section.className = "digest-section" + (expandByDefault ? " expanded" : "");
+
+  const header = document.createElement("div");
+  header.className = "digest-header";
+  header.innerHTML = `
+    <span class="digest-chevron">${ICONS.chevron}</span>
+    <div class="digest-info">
+      <div class="digest-title">${digestIndex === 0 ? "Latest Digest" : "Digest"}</div>
+      <div class="digest-date">${formatDate(digest.date)}</div>
+    </div>
+    <span class="digest-count">${digest.tabs.length} tab(s)</span>
+  `;
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.className = "digest-delete-btn";
+  deleteBtn.title = "Delete this digest";
+  deleteBtn.innerHTML = ICONS.trash;
+  header.appendChild(deleteBtn);
+
+  const body = document.createElement("div");
+  body.className = "digest-body";
+  let rendered = false;
+
+  // Toggle expand/collapse
+  header.addEventListener("click", (e) => {
+    if (e.target.closest(".digest-delete-btn")) return;
+    section.classList.toggle("expanded");
+    if (!rendered) {
+      renderTabs(body, digest.tabs, digestIndex);
+      rendered = true;
+    }
+  });
+
+  // Render immediately if expanded by default
+  if (expandByDefault) {
+    renderTabs(body, digest.tabs, digestIndex);
+    rendered = true;
+  }
+
+  // Delete entire digest
+  deleteBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    section.style.maxHeight = section.offsetHeight + "px";
+    requestAnimationFrame(() => section.classList.add("removing"));
+
+    const { archivedDigests = [] } = await chrome.storage.local.get("archivedDigests");
+    archivedDigests.splice(digestIndex, 1);
+    await chrome.storage.local.set({ archivedDigests });
+
+    setTimeout(() => {
+      section.remove();
+      if (container.children.length === 0) {
+        document.getElementById("empty-state").style.display = "block";
+        document.getElementById("subtitle").textContent = "";
+      }
+    }, 400);
+  });
+
+  section.appendChild(header);
+  section.appendChild(body);
+  container.appendChild(section);
+}
 
 function renderTabs(container, tabs, digestIndex) {
   for (let i = 0; i < tabs.length; i++) {
@@ -57,7 +150,7 @@ function renderTabs(container, tabs, digestIndex) {
         <div class="card-body">
           <div class="card-title">${escapeHtml(t.title)}</div>
           <div class="card-domain">${escapeHtml(domain)}</div>
-          <a class="card-url" href="${escapeHtml(t.url)}" target="_blank">${escapeHtml(t.url)}</a>
+          <span class="card-url">${escapeHtml(t.url)}</span>
           <div class="card-meta">
             <span class="badge badge-age">${ICONS.clock} Open for ${age}</span>
             <span class="badge badge-opened">${ICONS.calendar} Opened ${opened}</span>
@@ -71,8 +164,13 @@ function renderTabs(container, tabs, digestIndex) {
       </div>
     `;
 
-    // Copy URL
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".card-actions")) return;
+      window.open(t.url, "_blank");
+    });
+
     card.querySelector(".copy-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
       const btn = e.currentTarget;
       await navigator.clipboard.writeText(t.url);
       btn.innerHTML = ICONS.check;
@@ -83,8 +181,8 @@ function renderTabs(container, tabs, digestIndex) {
       }, 1500);
     });
 
-    // Remove from archive
-    card.querySelector(".remove-btn").addEventListener("click", async () => {
+    card.querySelector(".remove-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
       card.style.maxHeight = card.offsetHeight + "px";
       requestAnimationFrame(() => card.classList.add("removing"));
 
@@ -103,47 +201,6 @@ function renderTabs(container, tabs, digestIndex) {
     });
 
     container.appendChild(card);
-  }
-}
-
-function renderPastDigests(digests) {
-  const container = document.getElementById("past-digests");
-  container.style.display = "block";
-
-  for (let di = 0; di < digests.length; di++) {
-    const digest = digests[di];
-    const digestIndex = di + 1; // offset by 1 since index 0 is the latest
-
-    const section = document.createElement("div");
-    section.className = "past-section";
-
-    const header = document.createElement("div");
-    header.className = "past-header";
-    header.innerHTML = `
-      <span>${digest.tabs.length} tab(s) archived on ${formatDate(digest.date)}</span>
-    `;
-
-    const toggle = document.createElement("button");
-    toggle.className = "past-toggle";
-    toggle.textContent = "Show";
-
-    const list = document.createElement("div");
-    list.className = "past-list";
-    list.style.display = "none";
-
-    toggle.addEventListener("click", () => {
-      const visible = list.style.display !== "none";
-      list.style.display = visible ? "none" : "block";
-      toggle.textContent = visible ? "Show" : "Hide";
-      if (!list.hasChildNodes()) {
-        renderTabs(list, digest.tabs, digestIndex);
-      }
-    });
-
-    header.appendChild(toggle);
-    section.appendChild(header);
-    section.appendChild(list);
-    container.appendChild(section);
   }
 }
 
