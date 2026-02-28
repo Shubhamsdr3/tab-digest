@@ -9,6 +9,9 @@ const ICONS = {
   trash: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25ZM4.104 5.168a.75.75 0 1 0-1.49.164l.798 7.246A1.75 1.75 0 0 0 5.152 14h5.696a1.75 1.75 0 0 0 1.74-1.422l.798-7.246a.75.75 0 1 0-1.49-.164l-.798 7.245a.25.25 0 0 1-.249.203H5.152a.25.25 0 0 1-.25-.203Z"/></svg>`,
 };
 
+let activeSpaceFilter = null;
+let spacesMap = {};
+
 document.addEventListener("DOMContentLoaded", async () => {
   const loadingEl = document.getElementById("loading");
   const emptyEl = document.getElementById("empty-state");
@@ -17,25 +20,124 @@ document.addEventListener("DOMContentLoaded", async () => {
   const exportBar = document.getElementById("export-bar");
   const exportBtn = document.getElementById("export-btn");
   const exportStatus = document.getElementById("export-status");
+  const syncBtn = document.getElementById("sync-btn");
+  const filterBar = document.getElementById("filter-bar");
 
-  const { archivedDigests = [] } = await chrome.storage.local.get("archivedDigests");
+  const SYNC_ICON = syncBtn ? syncBtn.querySelector("svg")?.outerHTML : "";
+  const EXPORT_ICON = exportBtn.querySelector("svg").outerHTML;
 
-  loadingEl.style.display = "none";
+  const spaceView = document.getElementById("space-view");
+  const viewToggle = document.getElementById("view-toggle");
+  let currentView = "space";
 
-  if (archivedDigests.length === 0) {
-    emptyEl.style.display = "block";
-    return;
+  const { spaces = [] } = await chrome.storage.sync.get("spaces");
+  spacesMap = {};
+  for (const s of spaces) {
+    spacesMap[s.name] = s.color;
   }
 
-  const totalTabs = archivedDigests.reduce((sum, d) => sum + d.tabs.length, 0);
-  subtitleEl.textContent = `${archivedDigests.length} digest(s), ${totalTabs} tab(s) archived`;
-  exportBar.style.display = "flex";
+  let archivedDigests;
+
+  function renderAll(digests) {
+    archivedDigests = digests;
+    digestsEl.innerHTML = "";
+    spaceView.innerHTML = "";
+    activeSpaceFilter = null;
+
+    if (archivedDigests.length === 0) {
+      emptyEl.style.display = "block";
+      exportBar.style.display = "none";
+      filterBar.style.display = "none";
+      viewToggle.style.display = "none";
+      subtitleEl.textContent = "";
+      return;
+    }
+
+    emptyEl.style.display = "none";
+    const totalTabs = archivedDigests.reduce((sum, d) => sum + d.tabs.length, 0);
+    subtitleEl.textContent = `${archivedDigests.length} digest(s), ${totalTabs} tab(s) archived`;
+    exportBar.style.display = "flex";
+    viewToggle.style.display = "flex";
+
+    renderBySpace(spaceView, archivedDigests);
+
+    buildFilterBar(filterBar, archivedDigests);
+    for (let i = 0; i < archivedDigests.length; i++) {
+      renderDigestSection(digestsEl, archivedDigests[i], i, i === 0);
+    }
+
+    applyView();
+  }
+
+  function applyView() {
+    if (currentView === "space") {
+      spaceView.style.display = "";
+      digestsEl.style.display = "none";
+      filterBar.style.display = "none";
+    } else {
+      spaceView.style.display = "none";
+      digestsEl.style.display = "";
+      buildFilterBar(filterBar, archivedDigests);
+    }
+  }
+
+  viewToggle.addEventListener("click", (e) => {
+    const btn = e.target.closest(".view-toggle-btn");
+    if (!btn) return;
+    currentView = btn.dataset.view;
+    viewToggle.querySelectorAll(".view-toggle-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    applyView();
+  });
+
+  const { archivedDigests: localDigests = [] } = await chrome.storage.local.get("archivedDigests");
+  loadingEl.style.display = "none";
+  renderAll(localDigests);
 
   const { sheetsExportMeta } = await chrome.storage.local.get("sheetsExportMeta");
   if (sheetsExportMeta?.spreadsheetId) {
     exportStatus.innerHTML = `Last export: ${new Date(sheetsExportMeta.lastExport).toLocaleDateString()} · <a href="https://docs.google.com/spreadsheets/d/${sheetsExportMeta.spreadsheetId}" target="_blank">Open Sheet</a>`;
   }
 
+  // --- Sync button ---
+  if (syncBtn) {
+    syncBtn.addEventListener("click", async () => {
+      syncBtn.disabled = true;
+      syncBtn.classList.add("syncing");
+      syncBtn.innerHTML = `${SYNC_ICON} Syncing…`;
+      exportStatus.textContent = "";
+      exportStatus.className = "export-status";
+
+      try {
+        const result = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ action: "syncFromCloud" }, (res) => {
+            if (res?.ok) resolve(res);
+            else reject(new Error(res?.error || "Sync failed"));
+          });
+        });
+
+        exportStatus.textContent = `Synced: ${result.mergedCount} digest(s) (${result.localCount} local, ${result.cloudCount} cloud)`;
+
+        const { archivedDigests: fresh = [] } = await chrome.storage.local.get("archivedDigests");
+        renderAll(fresh);
+
+        syncBtn.innerHTML = `${SYNC_ICON} Synced!`;
+        setTimeout(() => {
+          syncBtn.innerHTML = `${SYNC_ICON} Sync`;
+          syncBtn.disabled = false;
+          syncBtn.classList.remove("syncing");
+        }, 2000);
+      } catch (err) {
+        exportStatus.textContent = err.message;
+        exportStatus.className = "export-status error";
+        syncBtn.innerHTML = `${SYNC_ICON} Sync`;
+        syncBtn.disabled = false;
+        syncBtn.classList.remove("syncing");
+      }
+    });
+  }
+
+  // --- Export button ---
   exportBtn.addEventListener("click", async () => {
     exportBtn.disabled = true;
     exportBtn.textContent = "Exporting…";
@@ -47,21 +149,235 @@ document.addEventListener("DOMContentLoaded", async () => {
       exportStatus.innerHTML = `Exported ${result.tabCount} tab(s) · <a href="${result.url}" target="_blank">Open Sheet</a>`;
       exportBtn.textContent = "Exported!";
       setTimeout(() => {
-        exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> Export to Google Sheets`;
+        exportBtn.innerHTML = `${EXPORT_ICON} Export to Sheets`;
         exportBtn.disabled = false;
       }, 2000);
     } catch (err) {
       exportStatus.textContent = err.message;
       exportStatus.className = "export-status error";
-      exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> Export to Google Sheets`;
+      exportBtn.innerHTML = `${EXPORT_ICON} Export to Sheets`;
       exportBtn.disabled = false;
     }
   });
-
-  for (let i = 0; i < archivedDigests.length; i++) {
-    renderDigestSection(digestsEl, archivedDigests[i], i, i === 0);
-  }
 });
+
+// --- Space filter bar ---
+
+function buildFilterBar(container, digests) {
+  const allTabs = digests.flatMap((d) => d.tabs);
+  const counts = {};
+  for (const t of allTabs) {
+    const s = t.space || "Uncategorized";
+    counts[s] = (counts[s] || 0) + 1;
+  }
+
+  const spaceNames = Object.keys(counts).sort((a, b) => {
+    if (a === "Uncategorized") return 1;
+    if (b === "Uncategorized") return -1;
+    return a.localeCompare(b);
+  });
+
+  if (spaceNames.length <= 1) {
+    container.style.display = "none";
+    return;
+  }
+
+  container.style.display = "flex";
+  container.innerHTML = "";
+
+  const allChip = document.createElement("button");
+  allChip.className = "filter-chip active";
+  allChip.style.borderColor = "#6366f1";
+  allChip.style.background = "#6366f1";
+  allChip.style.color = "#fff";
+  allChip.innerHTML = `All <span class="chip-count">${allTabs.length}</span>`;
+  allChip.addEventListener("click", () => setFilter(container, null));
+  container.appendChild(allChip);
+
+  for (const name of spaceNames) {
+    const color = spacesMap[name] || "#94a3b8";
+    const chip = document.createElement("button");
+    chip.className = "filter-chip";
+    chip.dataset.space = name;
+    chip.innerHTML = `<span class="chip-dot" style="background:${color}"></span> ${escapeHtml(name)} <span class="chip-count">${counts[name]}</span>`;
+    chip.addEventListener("click", () => setFilter(container, name));
+    container.appendChild(chip);
+  }
+}
+
+function setFilter(container, spaceName) {
+  activeSpaceFilter = spaceName;
+
+  container.querySelectorAll(".filter-chip").forEach((chip) => {
+    const isAll = !chip.dataset.space;
+    const isMatch = isAll ? spaceName === null : chip.dataset.space === spaceName;
+
+    if (isMatch) {
+      chip.classList.add("active");
+      const color = isAll ? "#6366f1" : (spacesMap[spaceName] || "#94a3b8");
+      chip.style.borderColor = color;
+      chip.style.background = color;
+      chip.style.color = "#fff";
+    } else {
+      chip.classList.remove("active");
+      chip.style.borderColor = "";
+      chip.style.background = "";
+      chip.style.color = "";
+    }
+  });
+
+  document.querySelectorAll(".card[data-space]").forEach((card) => {
+    if (spaceName === null || card.dataset.space === spaceName) {
+      card.classList.remove("space-hidden");
+    } else {
+      card.classList.add("space-hidden");
+    }
+  });
+}
+
+// --- By-space view ---
+
+function renderBySpace(container, digests) {
+  const grouped = {};
+  const tabDigestIndex = new Map();
+
+  for (let di = 0; di < digests.length; di++) {
+    for (const tab of digests[di].tabs) {
+      const space = tab.space || "Uncategorized";
+      if (!grouped[space]) grouped[space] = [];
+      grouped[space].push(tab);
+      tabDigestIndex.set(tab, di);
+    }
+  }
+
+  const { spaces: spaceOrder = [] } = spacesMap;
+  const names = Object.keys(grouped).sort((a, b) => {
+    if (a === "Uncategorized") return 1;
+    if (b === "Uncategorized") return -1;
+    return a.localeCompare(b);
+  });
+
+  for (let si = 0; si < names.length; si++) {
+    const name = names[si];
+    const tabs = grouped[name];
+    const color = spacesMap[name] || "#94a3b8";
+
+    const section = document.createElement("div");
+    section.className = "space-section" + (si === 0 ? " expanded" : "");
+
+    const header = document.createElement("div");
+    header.className = "space-section-header";
+    header.innerHTML = `
+      <span class="space-section-dot" style="background:${color}"></span>
+      <span class="space-section-name">${escapeHtml(name)}</span>
+      <span class="space-section-count">${tabs.length} tab(s)</span>
+      <span class="space-section-chevron">${ICONS.chevron}</span>
+    `;
+
+    const body = document.createElement("div");
+    body.className = "space-section-body";
+    let rendered = false;
+
+    header.addEventListener("click", () => {
+      section.classList.toggle("expanded");
+      if (!rendered) {
+        renderSpaceTabs(body, tabs, tabDigestIndex);
+        rendered = true;
+      }
+    });
+
+    if (si === 0) {
+      renderSpaceTabs(body, tabs, tabDigestIndex);
+      rendered = true;
+    }
+
+    section.appendChild(header);
+    section.appendChild(body);
+    container.appendChild(section);
+  }
+}
+
+function renderSpaceTabs(container, tabs, tabDigestIndex) {
+  const sorted = [...tabs].sort((a, b) => b.archivedAt - a.archivedAt);
+
+  for (let i = 0; i < sorted.length; i++) {
+    const t = sorted[i];
+    const digestIndex = tabDigestIndex.get(t);
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const domain = getDomain(t.url);
+    const age = t.createdAt ? formatDuration(t.archivedAt - t.createdAt) : "unknown";
+    const opened = t.createdAt ? formatDate(t.createdAt) : "unknown";
+    const lastSeen = t.lastAccessed ? formatRelative(t.archivedAt - t.lastAccessed) : "unknown";
+    const archivedDate = formatDate(t.archivedAt);
+
+    const favicon = t.favIconUrl
+      ? `<img class="card-favicon" src="${escapeHtml(t.favIconUrl)}" alt="" />`
+      : `<div class="card-favicon-placeholder"></div>`;
+
+    card.innerHTML = `
+      <div class="card-inner">
+        <div class="card-num">${i + 1}</div>
+        ${favicon}
+        <div class="card-body">
+          <div class="card-title">${escapeHtml(t.title)}</div>
+          <div class="card-domain">${escapeHtml(domain)}</div>
+          <span class="card-url">${escapeHtml(t.url)}</span>
+          <div class="card-meta">
+            <span class="badge badge-age">${ICONS.clock} Open for ${age}</span>
+            <span class="badge badge-opened">${ICONS.calendar} Archived ${archivedDate}</span>
+            <span class="badge badge-accessed">${ICONS.eye} Last used ${lastSeen}</span>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="card-action-btn copy-btn" title="Copy URL">${ICONS.copy}</button>
+          <button class="card-action-btn remove-btn" title="Remove from archive">${ICONS.cross}</button>
+        </div>
+      </div>
+    `;
+
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".card-actions")) return;
+      window.open(t.url, "_blank");
+    });
+
+    card.querySelector(".copy-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      await navigator.clipboard.writeText(t.url);
+      btn.innerHTML = ICONS.check;
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.innerHTML = ICONS.copy;
+        btn.classList.remove("copied");
+      }, 1500);
+    });
+
+    card.querySelector(".remove-btn").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      card.style.maxHeight = card.offsetHeight + "px";
+      requestAnimationFrame(() => card.classList.add("removing"));
+
+      const { archivedDigests = [] } = await chrome.storage.local.get("archivedDigests");
+      if (archivedDigests[digestIndex]) {
+        archivedDigests[digestIndex].tabs = archivedDigests[digestIndex].tabs.filter(
+          (tab) => tab.url !== t.url || tab.archivedAt !== t.archivedAt
+        );
+        if (archivedDigests[digestIndex].tabs.length === 0) {
+          archivedDigests.splice(digestIndex, 1);
+        }
+        await chrome.storage.local.set({ archivedDigests });
+      }
+
+      setTimeout(() => card.remove(), 350);
+    });
+
+    container.appendChild(card);
+  }
+}
+
+// --- By-date view (digest sections) ---
 
 function renderDigestSection(container, digest, digestIndex, expandByDefault) {
   const section = document.createElement("div");
@@ -88,7 +404,6 @@ function renderDigestSection(container, digest, digestIndex, expandByDefault) {
   body.className = "digest-body";
   let rendered = false;
 
-  // Toggle expand/collapse
   header.addEventListener("click", (e) => {
     if (e.target.closest(".digest-delete-btn")) return;
     section.classList.toggle("expanded");
@@ -98,13 +413,11 @@ function renderDigestSection(container, digest, digestIndex, expandByDefault) {
     }
   });
 
-  // Render immediately if expanded by default
   if (expandByDefault) {
     renderTabs(body, digest.tabs, digestIndex);
     rendered = true;
   }
 
-  // Delete entire digest
   deleteBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
     section.style.maxHeight = section.offsetHeight + "px";
@@ -132,7 +445,13 @@ function renderTabs(container, tabs, digestIndex) {
   for (let i = 0; i < tabs.length; i++) {
     const t = tabs[i];
     const card = document.createElement("div");
+    const space = t.space || "Uncategorized";
     card.className = "card";
+    card.dataset.space = space;
+
+    if (activeSpaceFilter && activeSpaceFilter !== space) {
+      card.classList.add("space-hidden");
+    }
 
     const domain = getDomain(t.url);
     const age = t.createdAt ? formatDuration(t.archivedAt - t.createdAt) : "unknown";
@@ -143,6 +462,9 @@ function renderTabs(container, tabs, digestIndex) {
       ? `<img class="card-favicon" src="${escapeHtml(t.favIconUrl)}" alt="" />`
       : `<div class="card-favicon-placeholder"></div>`;
 
+    const spaceColor = spacesMap[space] || "#94a3b8";
+    const spaceBadge = `<span class="badge badge-space" style="background:${spaceColor}">${escapeHtml(space)}</span>`;
+
     card.innerHTML = `
       <div class="card-inner">
         <div class="card-num">${i + 1}</div>
@@ -152,6 +474,7 @@ function renderTabs(container, tabs, digestIndex) {
           <div class="card-domain">${escapeHtml(domain)}</div>
           <span class="card-url">${escapeHtml(t.url)}</span>
           <div class="card-meta">
+            ${spaceBadge}
             <span class="badge badge-age">${ICONS.clock} Open for ${age}</span>
             <span class="badge badge-opened">${ICONS.calendar} Opened ${opened}</span>
             <span class="badge badge-accessed">${ICONS.eye} Last used ${lastSeen}</span>

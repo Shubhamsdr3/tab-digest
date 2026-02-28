@@ -5,13 +5,26 @@ const ALARM_NAME = "dailyTabDigest";
 
 // --- Installation ---
 
+const DEFAULT_SPACES = [
+  { name: "Personal", color: "#8b5cf6", patterns: [] },
+  { name: "Learning", color: "#f59e0b", patterns: [] },
+  { name: "Practice", color: "#10b981", patterns: [] },
+  { name: "Work", color: "#3b82f6", patterns: [] },
+  { name: "Reading", color: "#ef4444", patterns: [] },
+];
+
 chrome.runtime.onInstalled.addListener(async () => {
   await snapshotExistingTabs();
 
-  // Default auto-cleanup to ON for new installs
   const { autoCleanup } = await chrome.storage.sync.get("autoCleanup");
   if (autoCleanup === undefined) {
     await chrome.storage.sync.set({ autoCleanup: true });
+  }
+
+  const { spaces } = await chrome.storage.sync.get("spaces");
+  if (!spaces || spaces.length === 0) {
+    await chrome.storage.sync.set({ spaces: DEFAULT_SPACES });
+    console.log("[Tab Digest] Seeded default spaces");
   }
 
   await syncAlarm();
@@ -79,6 +92,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 function isProtected(url, protectedSites) {
   if (!url) return false;
   const lower = url.toLowerCase();
+  if (lower.includes("workona.com/")) return true;
   return protectedSites.some((site) => lower.includes(site.toLowerCase()));
 }
 
@@ -88,17 +102,53 @@ async function getStaleTabs() {
   const now = Date.now();
 
   return allTabs.filter((tab) => {
+    if (tab.active) return false;
+    if (tab.audible) return false;
     if (!tab.lastAccessed) return false;
     if (isProtected(tab.url, protectedSites)) return false;
     return now - tab.lastAccessed > STALE_MS;
   });
 }
 
+function extractWorkonaSpace(url) {
+  if (!url) return null;
+  const match = url.match(/workona\.com\/\d+\/[a-z0-9]+\/([a-z0-9_-]+)/i);
+  return match ? match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase() : null;
+}
+
+async function buildWindowSpaceMap(allTabs) {
+  const windowSpaces = {};
+
+  for (const tab of allTabs) {
+    const space = extractWorkonaSpace(tab.url);
+    if (space) {
+      windowSpaces[tab.windowId] = space;
+    }
+  }
+
+  return windowSpaces;
+}
+
+function classifyTabByPatterns(url, spaces) {
+  if (!url) return null;
+  const lower = url.toLowerCase();
+  for (const space of spaces) {
+    if (space.patterns && space.patterns.some((p) => p && lower.includes(p))) {
+      return space.name;
+    }
+  }
+  return null;
+}
+
 async function archiveAndClose() {
   const tabs = await getStaleTabs();
   if (tabs.length === 0) return { ok: false, count: 0 };
 
+  const allTabs = await chrome.tabs.query({});
+  const windowSpaceMap = await buildWindowSpaceMap(allTabs);
+
   const { tabCreatedAt = {} } = await chrome.storage.local.get("tabCreatedAt");
+  const { spaces = [] } = await chrome.storage.sync.get("spaces");
   const now = Date.now();
 
   const archived = tabs.map((t) => ({
@@ -108,6 +158,9 @@ async function archiveAndClose() {
     lastAccessed: t.lastAccessed || 0,
     createdAt: tabCreatedAt[t.id] || 0,
     archivedAt: now,
+    space: windowSpaceMap[t.windowId]
+      || classifyTabByPatterns(t.url, spaces)
+      || "Uncategorized",
   }));
 
   const { archivedDigests = [] } = await chrome.storage.local.get("archivedDigests");

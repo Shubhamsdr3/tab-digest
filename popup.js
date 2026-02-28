@@ -6,11 +6,16 @@ const totalCountEl = document.getElementById("total-count");
 const siteInput = document.getElementById("site-input");
 const addSiteBtn = document.getElementById("add-site");
 const siteListEl = document.getElementById("site-list");
+const spacesListEl = document.getElementById("spaces-list");
+const spaceNameInput = document.getElementById("space-name-input");
+const spaceColorInput = document.getElementById("space-color-input");
+const addSpaceBtn = document.getElementById("add-space");
 
 document.addEventListener("DOMContentLoaded", async () => {
   const res = await chrome.runtime.sendMessage({ action: "getAutoCleanup" });
   autoToggle.checked = res?.enabled !== false;
 
+  await renderSpaces();
   await renderProtectedSites();
   await refreshStats();
 });
@@ -46,6 +51,92 @@ archiveBtn.addEventListener("click", async () => {
 viewDigestBtn.addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("digest.html") });
 });
+
+// --- Spaces ---
+
+addSpaceBtn.addEventListener("click", addSpace);
+spaceNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") addSpace();
+});
+
+async function addSpace() {
+  const name = spaceNameInput.value.trim();
+  if (!name) return;
+
+  const color = spaceColorInput.value;
+  const { spaces = [] } = await chrome.storage.sync.get("spaces");
+
+  if (spaces.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+    spaceNameInput.value = "";
+    return;
+  }
+
+  spaces.push({ name, color, patterns: [] });
+  await chrome.storage.sync.set({ spaces });
+
+  spaceNameInput.value = "";
+  await renderSpaces();
+}
+
+async function removeSpace(index) {
+  const { spaces = [] } = await chrome.storage.sync.get("spaces");
+  spaces.splice(index, 1);
+  await chrome.storage.sync.set({ spaces });
+  await renderSpaces();
+}
+
+async function updatePatterns(index, patternsStr) {
+  const { spaces = [] } = await chrome.storage.sync.get("spaces");
+  if (!spaces[index]) return;
+
+  spaces[index].patterns = patternsStr
+    .split(",")
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+
+  await chrome.storage.sync.set({ spaces });
+}
+
+async function renderSpaces() {
+  const { spaces = [] } = await chrome.storage.sync.get("spaces");
+  spacesListEl.innerHTML = "";
+
+  if (spaces.length === 0) {
+    spacesListEl.innerHTML = `<div class="spaces-empty">No spaces yet</div>`;
+    return;
+  }
+
+  spaces.forEach((space, i) => {
+    const card = document.createElement("div");
+    card.className = "space-card";
+    card.innerHTML = `
+      <div class="space-card-header">
+        <span class="space-dot" style="background:${escapeHtml(space.color)}"></span>
+        <span class="space-card-name">${escapeHtml(space.name)}</span>
+        <button class="space-remove-btn" title="Remove">&times;</button>
+      </div>
+      <div class="space-patterns">
+        <input
+          class="space-patterns-input"
+          type="text"
+          placeholder="URL patterns (comma-separated)"
+          value="${escapeHtml(space.patterns.join(", "))}"
+          spellcheck="false"
+        />
+      </div>
+    `;
+
+    card.querySelector(".space-remove-btn").addEventListener("click", () => removeSpace(i));
+
+    let debounce;
+    card.querySelector(".space-patterns-input").addEventListener("input", (e) => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => updatePatterns(i, e.target.value), 500);
+    });
+
+    spacesListEl.appendChild(card);
+  });
+}
 
 // --- Protected sites ---
 

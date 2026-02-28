@@ -212,6 +212,158 @@
       flex-shrink: 0;
     }
 
+    .badge-space {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      color: #fff;
+    }
+
+    /* ---------- Space filter bar ---------- */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1.5px solid #e2e8f0;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-chip:hover {
+      border-color: #c7d2fe;
+      background: #f5f3ff;
+    }
+
+    .filter-chip.active {
+      border-color: currentColor;
+      color: #fff;
+    }
+
+    .filter-chip .chip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .filter-chip .chip-count {
+      font-weight: 400;
+      opacity: 0.8;
+    }
+
+    .card.space-hidden {
+      display: none;
+    }
+
+    /* ---------- View toggle ---------- */
+    .view-toggle {
+      display: flex;
+      gap: 0;
+      background: #e2e8f0;
+      border-radius: 10px;
+      padding: 3px;
+      margin-bottom: 20px;
+      width: fit-content;
+    }
+
+    .view-toggle-btn {
+      padding: 7px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: #64748b;
+      transition: all 0.15s;
+    }
+
+    .view-toggle-btn.active {
+      background: #fff;
+      color: #1e293b;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    /* ---------- Space sections (group-by-space view) ---------- */
+    .space-section {
+      margin-bottom: 20px;
+    }
+
+    .space-section-header {
+      display: flex;
+      align-items: center;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 14px 16px;
+      gap: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .space-section-header:hover {
+      background: #f8fafc;
+    }
+
+    .space-section-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .space-section-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1e293b;
+      flex: 1;
+    }
+
+    .space-section-count {
+      flex-shrink: 0;
+      background: #eef2ff;
+      color: #6366f1;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+
+    .space-section-chevron {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      color: #94a3b8;
+      transition: transform 0.2s;
+    }
+
+    .space-section.expanded .space-section-chevron {
+      transform: rotate(90deg);
+    }
+
+    .space-section-body {
+      display: none;
+      padding-top: 10px;
+    }
+
+    .space-section.expanded .space-section-body {
+      display: block;
+    }
+
     /* ---------- Digest sections ---------- */
     .digest-section {
       margin-bottom: 20px;
@@ -410,9 +562,17 @@
       </button>
     </div>
 
+    <div id="view-toggle" class="view-toggle" style="display:none">
+      <button class="view-toggle-btn active" data-view="space">By Space</button>
+      <button class="view-toggle-btn" data-view="date">By Date</button>
+    </div>
+
+    <div id="filter-bar" class="filter-bar" style="display:none"></div>
+
     <div id="loading">Loading...</div>
     <div id="empty-state">No archived tabs yet. Use the extension to archive unused tabs.</div>
-    <div id="digests"></div>
+    <div id="space-view"></div>
+    <div id="digests" style="display:none"></div>
 
     <div class="footer">Tab Digest</div>
   </div>
