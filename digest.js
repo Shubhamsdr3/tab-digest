@@ -17,25 +17,80 @@ document.addEventListener("DOMContentLoaded", async () => {
   const exportBar = document.getElementById("export-bar");
   const exportBtn = document.getElementById("export-btn");
   const exportStatus = document.getElementById("export-status");
+  const syncBtn = document.getElementById("sync-btn");
 
-  const { archivedDigests = [] } = await chrome.storage.local.get("archivedDigests");
+  const SYNC_ICON = syncBtn.querySelector("svg").outerHTML;
+  const EXPORT_ICON = exportBtn.querySelector("svg").outerHTML;
 
-  loadingEl.style.display = "none";
+  let archivedDigests;
 
-  if (archivedDigests.length === 0) {
-    emptyEl.style.display = "block";
-    return;
+  function renderAll(digests) {
+    archivedDigests = digests;
+    digestsEl.innerHTML = "";
+
+    if (archivedDigests.length === 0) {
+      emptyEl.style.display = "block";
+      exportBar.style.display = "none";
+      subtitleEl.textContent = "";
+      return;
+    }
+
+    emptyEl.style.display = "none";
+    const totalTabs = archivedDigests.reduce((sum, d) => sum + d.tabs.length, 0);
+    subtitleEl.textContent = `${archivedDigests.length} digest(s), ${totalTabs} tab(s) archived`;
+    exportBar.style.display = "flex";
+
+    for (let i = 0; i < archivedDigests.length; i++) {
+      renderDigestSection(digestsEl, archivedDigests[i], i, i === 0);
+    }
   }
 
-  const totalTabs = archivedDigests.reduce((sum, d) => sum + d.tabs.length, 0);
-  subtitleEl.textContent = `${archivedDigests.length} digest(s), ${totalTabs} tab(s) archived`;
-  exportBar.style.display = "flex";
+  const { archivedDigests: localDigests = [] } = await chrome.storage.local.get("archivedDigests");
+  loadingEl.style.display = "none";
+  renderAll(localDigests);
 
   const { sheetsExportMeta } = await chrome.storage.local.get("sheetsExportMeta");
   if (sheetsExportMeta?.spreadsheetId) {
     exportStatus.innerHTML = `Last export: ${new Date(sheetsExportMeta.lastExport).toLocaleDateString()} · <a href="https://docs.google.com/spreadsheets/d/${sheetsExportMeta.spreadsheetId}" target="_blank">Open Sheet</a>`;
   }
 
+  // --- Sync button ---
+  syncBtn.addEventListener("click", async () => {
+    syncBtn.disabled = true;
+    syncBtn.classList.add("syncing");
+    syncBtn.innerHTML = `${SYNC_ICON} Syncing…`;
+    exportStatus.textContent = "";
+    exportStatus.className = "export-status";
+
+    try {
+      const result = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ action: "syncFromCloud" }, (res) => {
+          if (res?.ok) resolve(res);
+          else reject(new Error(res?.error || "Sync failed"));
+        });
+      });
+
+      exportStatus.textContent = `Synced: ${result.mergedCount} digest(s) (${result.localCount} local, ${result.cloudCount} cloud)`;
+
+      const { archivedDigests: fresh = [] } = await chrome.storage.local.get("archivedDigests");
+      renderAll(fresh);
+
+      syncBtn.innerHTML = `${SYNC_ICON} Synced!`;
+      setTimeout(() => {
+        syncBtn.innerHTML = `${SYNC_ICON} Sync`;
+        syncBtn.disabled = false;
+        syncBtn.classList.remove("syncing");
+      }, 2000);
+    } catch (err) {
+      exportStatus.textContent = err.message;
+      exportStatus.className = "export-status error";
+      syncBtn.innerHTML = `${SYNC_ICON} Sync`;
+      syncBtn.disabled = false;
+      syncBtn.classList.remove("syncing");
+    }
+  });
+
+  // --- Export button ---
   exportBtn.addEventListener("click", async () => {
     exportBtn.disabled = true;
     exportBtn.textContent = "Exporting…";
@@ -47,20 +102,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       exportStatus.innerHTML = `Exported ${result.tabCount} tab(s) · <a href="${result.url}" target="_blank">Open Sheet</a>`;
       exportBtn.textContent = "Exported!";
       setTimeout(() => {
-        exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> Export to Google Sheets`;
+        exportBtn.innerHTML = `${EXPORT_ICON} Export to Sheets`;
         exportBtn.disabled = false;
       }, 2000);
     } catch (err) {
       exportStatus.textContent = err.message;
       exportStatus.className = "export-status error";
-      exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> Export to Google Sheets`;
+      exportBtn.innerHTML = `${EXPORT_ICON} Export to Sheets`;
       exportBtn.disabled = false;
     }
   });
-
-  for (let i = 0; i < archivedDigests.length; i++) {
-    renderDigestSection(digestsEl, archivedDigests[i], i, i === 0);
-  }
 });
 
 function renderDigestSection(container, digest, digestIndex, expandByDefault) {

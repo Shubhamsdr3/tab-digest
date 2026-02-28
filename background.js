@@ -1,3 +1,5 @@
+importScripts("firebase-config.js", "firebase-sync.js");
+
 const TESTING = false; // flip to false for production
 
 const STALE_MS = TESTING ? 5 * 1000 : 24 * 60 * 60 * 1000;
@@ -121,6 +123,15 @@ async function archiveAndClose() {
   await chrome.tabs.remove(tabIds);
   console.log(`[Digest] Closed ${tabIds.length} tabs`);
 
+  if (FIREBASE_PROJECT_ID && FIREBASE_PROJECT_ID !== "YOUR_PROJECT_ID") {
+    try {
+      await pushDigestsToCloud(archivedDigests);
+      console.log("[Digest] Pushed to Firestore");
+    } catch (err) {
+      console.warn("[Digest] Cloud sync failed (non-blocking):", err.message);
+    }
+  }
+
   return { ok: true, count: archived.length };
 }
 
@@ -176,6 +187,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.storage.sync.get("autoCleanup", (data) => {
       sendResponse({ enabled: data.autoCleanup !== false });
     });
+    return true;
+  }
+
+  if (msg.action === "syncFromCloud") {
+    (async () => {
+      try {
+        const result = await syncDigests();
+        sendResponse({ ok: true, ...result });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
     return true;
   }
 });
