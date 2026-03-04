@@ -103,6 +103,58 @@
       border-color: #fca5a5;
     }
 
+    .card-action-btn.move-btn { color: #6366f1; position: relative; }
+
+    .move-dropdown {
+      display: none;
+      position: absolute;
+      top: 32px;
+      right: 0;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+      min-width: 140px;
+      z-index: 20;
+      padding: 4px 0;
+    }
+
+    .move-dropdown.open {
+      display: block;
+    }
+
+    .move-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #334155;
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      transition: background 0.1s;
+    }
+
+    .move-dropdown-item:hover {
+      background: #f1f5f9;
+    }
+
+    .move-dropdown-item.current {
+      font-weight: 700;
+      color: #6366f1;
+    }
+
+    .move-dropdown-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
     .card.removing {
       opacity: 0;
       max-height: 0;

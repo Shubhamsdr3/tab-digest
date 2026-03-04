@@ -7,7 +7,80 @@ const ICONS = {
   cross: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>`,
   chevron: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>`,
   trash: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25ZM4.104 5.168a.75.75 0 1 0-1.49.164l.798 7.246A1.75 1.75 0 0 0 5.152 14h5.696a1.75 1.75 0 0 0 1.74-1.422l.798-7.246a.75.75 0 1 0-1.49-.164l-.798 7.245a.25.25 0 0 1-.249.203H5.152a.25.25 0 0 1-.25-.203Z"/></svg>`,
+  move: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"><path d="M5.22 1.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1-1.06 1.06L6.75 3.81V12.19l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0l-3.25-3.25a.75.75 0 1 1 1.06-1.06l1.72 1.72V3.81L3.03 5.53a.75.75 0 0 1-1.06-1.06l3.25-3.25Z"/></svg>`,
 };
+
+let allSpaceNames = [];
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".move-btn")) {
+    document.querySelectorAll(".move-dropdown.open").forEach((d) => d.classList.remove("open"));
+  }
+});
+
+async function moveTabToSpace(tab, digestIndex, newSpace, card) {
+  const { archivedDigests = [] } = await chrome.storage.local.get("archivedDigests");
+  if (!archivedDigests[digestIndex]) return;
+
+  const match = archivedDigests[digestIndex].tabs.find(
+    (t) => t.url === tab.url && t.archivedAt === tab.archivedAt
+  );
+  if (match) {
+    match.space = newSpace;
+    await chrome.storage.local.set({ archivedDigests });
+  }
+
+  tab.space = newSpace;
+
+  if (typeof window._refreshDigests === "function") {
+    await window._refreshDigests();
+  }
+}
+
+function buildMoveDropdown(tab, digestIndex, card) {
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "relative";
+  wrapper.style.display = "inline-flex";
+
+  const btn = document.createElement("button");
+  btn.className = "card-action-btn move-btn";
+  btn.title = "Move to space";
+  btn.innerHTML = ICONS.move;
+
+  const dropdown = document.createElement("div");
+  dropdown.className = "move-dropdown";
+
+  const currentSpace = tab.space || "Uncategorized";
+  const names = [...new Set([...allSpaceNames, "Uncategorized", currentSpace])];
+
+  for (const name of names) {
+    const item = document.createElement("button");
+    item.className = "move-dropdown-item" + (name === currentSpace ? " current" : "");
+    const color = spacesMap[name] || "#94a3b8";
+    item.innerHTML = `<span class="move-dropdown-dot" style="background:${color}"></span>${escapeHtml(name)}`;
+
+    item.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      dropdown.classList.remove("open");
+      if (name === currentSpace) return;
+      await moveTabToSpace(tab, digestIndex, name, card);
+    });
+
+    dropdown.appendChild(item);
+  }
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".move-dropdown.open").forEach((d) => {
+      if (d !== dropdown) d.classList.remove("open");
+    });
+    dropdown.classList.toggle("open");
+  });
+
+  wrapper.appendChild(btn);
+  wrapper.appendChild(dropdown);
+  return wrapper;
+}
 
 let activeSpaceFilter = null;
 let spacesMap = {};
@@ -35,8 +108,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   for (const s of spaces) {
     spacesMap[s.name] = s.color;
   }
+  allSpaceNames = spaces.map((s) => s.name);
 
   let archivedDigests;
+
+  window._refreshDigests = async function () {
+    const { archivedDigests: fresh = [] } = await chrome.storage.local.get("archivedDigests");
+    renderAll(fresh);
+  };
 
   function renderAll(digests) {
     archivedDigests = digests;
@@ -316,6 +395,9 @@ function renderSpaceTabs(container, tabs, tabDigestIndex) {
       ? `<img class="card-favicon" src="${escapeHtml(t.favIconUrl)}" alt="" />`
       : `<div class="card-favicon-placeholder"></div>`;
 
+    const spaceColor = spacesMap[t.space] || "#94a3b8";
+    const spaceBadge = `<span class="badge badge-space" style="background:${spaceColor}">${escapeHtml(t.space || "Uncategorized")}</span>`;
+
     card.innerHTML = `
       <div class="card-inner">
         <div class="card-num">${i + 1}</div>
@@ -325,36 +407,48 @@ function renderSpaceTabs(container, tabs, tabDigestIndex) {
           <div class="card-domain">${escapeHtml(domain)}</div>
           <span class="card-url">${escapeHtml(t.url)}</span>
           <div class="card-meta">
+            ${spaceBadge}
             <span class="badge badge-age">${ICONS.clock} Open for ${age}</span>
             <span class="badge badge-opened">${ICONS.calendar} Archived ${archivedDate}</span>
             <span class="badge badge-accessed">${ICONS.eye} Last used ${lastSeen}</span>
           </div>
         </div>
-        <div class="card-actions">
-          <button class="card-action-btn copy-btn" title="Copy URL">${ICONS.copy}</button>
-          <button class="card-action-btn remove-btn" title="Remove from archive">${ICONS.cross}</button>
-        </div>
+        <div class="card-actions"></div>
       </div>
     `;
+
+    const actions = card.querySelector(".card-actions");
+    actions.appendChild(buildMoveDropdown(t, digestIndex, card));
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "card-action-btn copy-btn";
+    copyBtn.title = "Copy URL";
+    copyBtn.innerHTML = ICONS.copy;
+    actions.appendChild(copyBtn);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "card-action-btn remove-btn";
+    removeBtn.title = "Remove from archive";
+    removeBtn.innerHTML = ICONS.cross;
+    actions.appendChild(removeBtn);
 
     card.addEventListener("click", (e) => {
       if (e.target.closest(".card-actions")) return;
       window.open(t.url, "_blank");
     });
 
-    card.querySelector(".copy-btn").addEventListener("click", async (e) => {
+    copyBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const btn = e.currentTarget;
       await navigator.clipboard.writeText(t.url);
-      btn.innerHTML = ICONS.check;
-      btn.classList.add("copied");
+      copyBtn.innerHTML = ICONS.check;
+      copyBtn.classList.add("copied");
       setTimeout(() => {
-        btn.innerHTML = ICONS.copy;
-        btn.classList.remove("copied");
+        copyBtn.innerHTML = ICONS.copy;
+        copyBtn.classList.remove("copied");
       }, 1500);
     });
 
-    card.querySelector(".remove-btn").addEventListener("click", async (e) => {
+    removeBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       card.style.maxHeight = card.offsetHeight + "px";
       requestAnimationFrame(() => card.classList.add("removing"));
@@ -480,31 +574,42 @@ function renderTabs(container, tabs, digestIndex) {
             <span class="badge badge-accessed">${ICONS.eye} Last used ${lastSeen}</span>
           </div>
         </div>
-        <div class="card-actions">
-          <button class="card-action-btn copy-btn" title="Copy URL">${ICONS.copy}</button>
-          <button class="card-action-btn remove-btn" title="Remove from archive">${ICONS.cross}</button>
-        </div>
+        <div class="card-actions"></div>
       </div>
     `;
+
+    const actions = card.querySelector(".card-actions");
+    actions.appendChild(buildMoveDropdown(t, digestIndex, card));
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "card-action-btn copy-btn";
+    copyBtn.title = "Copy URL";
+    copyBtn.innerHTML = ICONS.copy;
+    actions.appendChild(copyBtn);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "card-action-btn remove-btn";
+    removeBtn.title = "Remove from archive";
+    removeBtn.innerHTML = ICONS.cross;
+    actions.appendChild(removeBtn);
 
     card.addEventListener("click", (e) => {
       if (e.target.closest(".card-actions")) return;
       window.open(t.url, "_blank");
     });
 
-    card.querySelector(".copy-btn").addEventListener("click", async (e) => {
+    copyBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const btn = e.currentTarget;
       await navigator.clipboard.writeText(t.url);
-      btn.innerHTML = ICONS.check;
-      btn.classList.add("copied");
+      copyBtn.innerHTML = ICONS.check;
+      copyBtn.classList.add("copied");
       setTimeout(() => {
-        btn.innerHTML = ICONS.copy;
-        btn.classList.remove("copied");
+        copyBtn.innerHTML = ICONS.copy;
+        copyBtn.classList.remove("copied");
       }, 1500);
     });
 
-    card.querySelector(".remove-btn").addEventListener("click", async (e) => {
+    removeBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       card.style.maxHeight = card.offsetHeight + "px";
       requestAnimationFrame(() => card.classList.add("removing"));
