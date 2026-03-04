@@ -31,8 +31,10 @@ chrome.runtime.onInstalled.addListener(async () => {
   console.log("[Tab Digest] Installed. TESTING =", TESTING);
 });
 
-// Re-sync alarm on browser startup (service worker may have been killed)
-chrome.runtime.onStartup.addListener(syncAlarm);
+chrome.runtime.onStartup.addListener(async () => {
+  await snapshotExistingTabs();
+  await syncAlarm();
+});
 
 // Re-sync alarm when settings change from another machine
 chrome.storage.onChanged.addListener((changes, area) => {
