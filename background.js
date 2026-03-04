@@ -89,11 +89,27 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 
 // --- Core logic ---
 
+function normalizeUrl(url) {
+  try {
+    const u = new URL(url);
+    return (u.origin + u.pathname).toLowerCase().replace(/\/+$/, "");
+  } catch {
+    return url.toLowerCase().replace(/\/+$/, "");
+  }
+}
+
 function isProtected(url, protectedSites) {
   if (!url) return false;
   const lower = url.toLowerCase();
-  if (lower.includes("workona.com/")) return true;
-  return protectedSites.some((site) => lower.includes(site.toLowerCase()));
+  if (/workona\.com\/\d+\/[a-z0-9]+\/[a-z0-9_-]+/i.test(lower)) return true;
+
+  const normalized = normalizeUrl(url);
+  return protectedSites.some((site) => {
+    const normalizedSite = normalizeUrl(
+      site.includes("://") ? site : "https://" + site
+    );
+    return normalized === normalizedSite;
+  });
 }
 
 async function getStaleTabs() {
@@ -102,11 +118,19 @@ async function getStaleTabs() {
   const now = Date.now();
 
   return allTabs.filter((tab) => {
-    if (tab.active) return false;
-    if (tab.audible) return false;
-    if (!tab.lastAccessed) return false;
-    if (isProtected(tab.url, protectedSites)) return false;
-    return now - tab.lastAccessed > STALE_MS;
+    const age = tab.lastAccessed ? Math.round((now - tab.lastAccessed) / 1000) : "n/a";
+    const skip = (reason) => {
+      if (TESTING) console.log(`[Skip] ${reason} | age=${age}s | ${tab.url?.slice(0, 80)}`);
+      return false;
+    };
+
+    if (tab.active) return skip("active tab");
+    if (tab.audible) return skip("playing audio");
+    if (!tab.lastAccessed) return skip("no lastAccessed");
+    if (isProtected(tab.url, protectedSites)) return skip("protected");
+    if (tab.discarded) return true;
+    if (now - tab.lastAccessed <= STALE_MS) return skip(`too recent (${age}s < ${STALE_MS / 1000}s)`);
+    return true;
   });
 }
 
