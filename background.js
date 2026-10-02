@@ -28,12 +28,21 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 
   await syncAlarm();
+  scheduleMergeDuplicateTabGroups();
   console.log("[Tab Digest] Installed. TESTING =", TESTING);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await snapshotExistingTabs();
   await syncAlarm();
+  // Session restore finishes after startup; retry a few times.
+  scheduleMergeDuplicateTabGroups();
+  setTimeout(() => mergeDuplicateTabGroups(), 5000);
+  setTimeout(() => mergeDuplicateTabGroups(), 15000);
+});
+
+chrome.tabGroups.onCreated.addListener(() => {
+  scheduleMergeDuplicateTabGroups();
 });
 
 // Re-sync alarm when settings change from another machine
@@ -77,6 +86,68 @@ async function snapshotExistingTabs() {
   await chrome.storage.local.set({ tabCreatedAt });
 }
 
+let mergeDuplicateGroupsTimer = null;
+
+function scheduleMergeDuplicateTabGroups() {
+  clearTimeout(mergeDuplicateGroupsTimer);
+  mergeDuplicateGroupsTimer = setTimeout(() => {
+    mergeDuplicateTabGroups();
+  }, 1500);
+}
+
+/**
+ * Chrome session restore can recreate same-named groups in one window.
+ * Merge named duplicates so each (window, group title) keeps a single group.
+ * Untitled groups are left alone (color-only keys collide too easily).
+ */
+async function mergeDuplicateTabGroups() {
+  try {
+    const groups = await chrome.tabGroups.query({});
+    const namedGroups = groups.filter((group) => (group.title || "").trim());
+    if (namedGroups.length < 2) return;
+
+    const tabs = await chrome.tabs.query({});
+    const tabsByGroupId = {};
+    for (const tab of tabs) {
+      if (tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) continue;
+      if (!tabsByGroupId[tab.groupId]) tabsByGroupId[tab.groupId] = [];
+      tabsByGroupId[tab.groupId].push(tab.id);
+    }
+
+    const groupsByWindowAndKey = {};
+    for (const group of namedGroups) {
+      const key = `${group.windowId}::${getGroupKey(group)}`;
+      if (!groupsByWindowAndKey[key]) groupsByWindowAndKey[key] = [];
+      groupsByWindowAndKey[key].push(group);
+    }
+
+    let mergedCount = 0;
+    for (const list of Object.values(groupsByWindowAndKey)) {
+      if (list.length < 2) continue;
+
+      list.sort((a, b) => {
+        const aCount = (tabsByGroupId[a.id] || []).length;
+        const bCount = (tabsByGroupId[b.id] || []).length;
+        return bCount - aCount;
+      });
+
+      const [keep, ...duplicates] = list;
+      for (const duplicate of duplicates) {
+        const tabIds = tabsByGroupId[duplicate.id] || [];
+        if (tabIds.length === 0) continue;
+        await chrome.tabs.group({ tabIds, groupId: keep.id });
+        mergedCount += 1;
+      }
+    }
+
+    if (mergedCount > 0) {
+      console.log(`[Tab Digest] Merged ${mergedCount} duplicate tab group(s)`);
+    }
+  } catch (err) {
+    console.warn("[Tab Digest] Failed to merge duplicate tab groups:", err);
+  }
+}
+
 chrome.tabs.onCreated.addListener(async (tab) => {
   const { tabCreatedAt = {} } = await chrome.storage.local.get("tabCreatedAt");
   tabCreatedAt[tab.id] = Date.now();
@@ -114,9 +185,32 @@ function isProtected(url, protectedSites) {
   });
 }
 
+function getGroupKey(group) {
+  const title = (group.title || "").trim();
+  if (title) return title.toLowerCase();
+  return `__untitled:${group.color}`;
+}
+
+async function getSafeGroupIds(safeTabGroups) {
+  if (!safeTabGroups || safeTabGroups.length === 0) return new Set();
+  const safeKeys = new Set(
+    safeTabGroups.map((key) => String(key).toLowerCase())
+  );
+  const groups = await chrome.tabGroups.query({});
+  const safeIds = new Set();
+  for (const group of groups) {
+    if (safeKeys.has(getGroupKey(group))) {
+      safeIds.add(group.id);
+    }
+  }
+  return safeIds;
+}
+
 async function getStaleTabs() {
   const allTabs = await chrome.tabs.query({});
-  const { protectedSites = [] } = await chrome.storage.sync.get("protectedSites");
+  const { protectedSites = [], safeTabGroups = [] } =
+    await chrome.storage.sync.get(["protectedSites", "safeTabGroups"]);
+  const safeGroupIds = await getSafeGroupIds(safeTabGroups);
   const now = Date.now();
 
   return allTabs.filter((tab) => {
@@ -130,6 +224,12 @@ async function getStaleTabs() {
     if (tab.audible) return skip("playing audio");
     if (!tab.lastAccessed) return skip("no lastAccessed");
     if (isProtected(tab.url, protectedSites)) return skip("protected");
+    if (
+      tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE &&
+      safeGroupIds.has(tab.groupId)
+    ) {
+      return skip("safe group");
+    }
     if (tab.discarded) return true;
     if (now - tab.lastAccessed <= STALE_MS) return skip(`too recent (${age}s < ${STALE_MS / 1000}s)`);
     return true;
@@ -255,6 +355,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.storage.sync.get("autoCleanup", (data) => {
       sendResponse({ enabled: data.autoCleanup !== false });
     });
+    return true;
+  }
+
+  if (msg.action === "mergeDuplicateTabGroups") {
+    mergeDuplicateTabGroups().then(() => sendResponse({ ok: true }));
     return true;
   }
 });

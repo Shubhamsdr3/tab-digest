@@ -285,6 +285,112 @@ header h1 {
   padding: 4px 0;
 }
 
+/* ---------- Safe Tab Groups ---------- */
+.safe-groups-section {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 12px;
+}
+
+.safe-groups-section h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+#safe-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.group-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.group-row.is-safe {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+
+.group-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.group-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.group-name {
+  font-size: 12px;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-meta {
+  font-size: 10px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.group-safe-btn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1.5px solid #cbd5e1;
+  background: #fff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.group-safe-btn:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
+.group-safe-btn.is-safe {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #fff;
+}
+
+.group-safe-btn.is-safe:hover {
+  background: #4f46e5;
+  border-color: #4f46e5;
+}
+
+.groups-empty {
+  color: #94a3b8;
+  font-style: italic;
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.merge-groups-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
 /* ---------- Protected Sites ---------- */
 .protected-section {
   border-top: 1px solid #e2e8f0;

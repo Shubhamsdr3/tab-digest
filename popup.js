@@ -6,16 +6,31 @@ const totalCountEl = document.getElementById("total-count");
 const siteInput = document.getElementById("site-input");
 const addSiteBtn = document.getElementById("add-site");
 const siteListEl = document.getElementById("site-list");
+const safeGroupsListEl = document.getElementById("safe-groups-list");
+const mergeGroupsBtn = document.getElementById("merge-groups-btn");
 const spacesListEl = document.getElementById("spaces-list");
 const spaceNameInput = document.getElementById("space-name-input");
 const spaceColorInput = document.getElementById("space-color-input");
 const addSpaceBtn = document.getElementById("add-space");
+
+const GROUP_COLOR_HEX = {
+  grey: "#9ca3af",
+  blue: "#3b82f6",
+  red: "#ef4444",
+  yellow: "#eab308",
+  green: "#22c55e",
+  pink: "#ec4899",
+  purple: "#a855f7",
+  cyan: "#06b6d4",
+  orange: "#f97316",
+};
 
 document.addEventListener("DOMContentLoaded", async () => {
   const res = await chrome.runtime.sendMessage({ action: "getAutoCleanup" });
   autoToggle.checked = res?.enabled !== false;
 
   await renderSpaces();
+  await renderSafeGroups();
   await renderProtectedSites();
   await refreshStats();
 });
@@ -137,6 +152,154 @@ async function renderSpaces() {
     spacesListEl.appendChild(card);
   });
 }
+
+// --- Safe tab groups ---
+
+function getGroupKey(group) {
+  const title = (group.title || "").trim();
+  if (title) return title.toLowerCase();
+  return `__untitled:${group.color}`;
+}
+
+function getGroupLabel(group) {
+  const title = (group.title || "").trim();
+  if (title) return title;
+  return `Untitled (${group.color})`;
+}
+
+function getStorageLabel(group) {
+  const title = (group.title || "").trim();
+  if (title) return title;
+  return `__untitled:${group.color}`;
+}
+
+function getStoredGroupLabel(value) {
+  const key = String(value);
+  if (key.toLowerCase().startsWith("__untitled:")) {
+    return `Untitled (${key.slice("__untitled:".length)})`;
+  }
+  return key;
+}
+
+async function setGroupSafe(key, label, isSafe) {
+  const { safeTabGroups = [] } = await chrome.storage.sync.get("safeTabGroups");
+  const normalized = key.toLowerCase();
+  const matches = (item) => String(item).toLowerCase() === normalized;
+  let updated = [...safeTabGroups];
+
+  if (isSafe) {
+    if (!updated.some(matches)) {
+      updated.push(label);
+    }
+  } else {
+    updated = updated.filter((item) => !matches(item));
+  }
+
+  await chrome.storage.sync.set({ safeTabGroups: updated });
+  await renderSafeGroups();
+  await refreshStats();
+}
+
+async function renderSafeGroups() {
+  const { safeTabGroups = [] } = await chrome.storage.sync.get("safeTabGroups");
+  const safeKeys = new Set(safeTabGroups.map((key) => String(key).toLowerCase()));
+  const openGroups = await chrome.tabGroups.query({});
+  const allTabs = await chrome.tabs.query({});
+  const tabCountByGroup = {};
+
+  for (const tab of allTabs) {
+    if (tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) continue;
+    tabCountByGroup[tab.groupId] = (tabCountByGroup[tab.groupId] || 0) + 1;
+  }
+
+  safeGroupsListEl.innerHTML = "";
+
+  // Collapse same-named groups (often Chrome restore duplicates) into one row.
+  const openByKey = new Map();
+  for (const group of openGroups) {
+    const key = getGroupKey(group);
+    const existing = openByKey.get(key);
+    const tabCount = tabCountByGroup[group.id] || 0;
+    if (!existing) {
+      openByKey.set(key, {
+        key,
+        label: getGroupLabel(group),
+        storageLabel: getStorageLabel(group),
+        color: group.color,
+        tabCount,
+        instanceCount: 1,
+        isOpen: true,
+      });
+      continue;
+    }
+    existing.tabCount += tabCount;
+    existing.instanceCount += 1;
+  }
+
+  const rows = [...openByKey.values()];
+  const openKeys = new Set(openByKey.keys());
+
+  for (const stored of safeTabGroups) {
+    const key = String(stored).toLowerCase();
+    if (openKeys.has(key)) continue;
+    rows.push({
+      key,
+      label: getStoredGroupLabel(stored),
+      storageLabel: String(stored),
+      color: key.startsWith("__untitled:") ? key.slice("__untitled:".length) : "grey",
+      tabCount: 0,
+      instanceCount: 0,
+      isOpen: false,
+    });
+  }
+
+  if (rows.length === 0) {
+    safeGroupsListEl.innerHTML =
+      `<div class="groups-empty">No tab groups open. Create a group in Chrome, then mark it safe here.</div>`;
+    mergeGroupsBtn.hidden = true;
+    return;
+  }
+
+  const hasDuplicateCopies = rows.some((row) => row.instanceCount > 1);
+  mergeGroupsBtn.hidden = !hasDuplicateCopies;
+
+  for (const row of rows) {
+    const isSafe = safeKeys.has(row.key);
+    const meta = !row.isOpen
+      ? "saved"
+      : row.instanceCount > 1
+        ? `${row.tabCount} tabs · ${row.instanceCount} copies`
+        : `${row.tabCount} tabs`;
+    const el = document.createElement("div");
+    el.className = `group-row${isSafe ? " is-safe" : ""}`;
+    el.innerHTML = `
+      <div class="group-info">
+        <span class="group-color-dot" style="background:${GROUP_COLOR_HEX[row.color] || "#9ca3af"}"></span>
+        <span class="group-name">${escapeHtml(row.label)}</span>
+        <span class="group-meta">${meta}</span>
+      </div>
+      <button class="group-safe-btn${isSafe ? " is-safe" : ""}" type="button">
+        ${isSafe ? "Safe" : "Mark safe"}
+      </button>
+    `;
+
+    el.querySelector(".group-safe-btn").addEventListener("click", () => {
+      setGroupSafe(row.key, row.storageLabel, !isSafe);
+    });
+
+    safeGroupsListEl.appendChild(el);
+  }
+}
+
+mergeGroupsBtn.addEventListener("click", async () => {
+  mergeGroupsBtn.disabled = true;
+  mergeGroupsBtn.textContent = "Merging...";
+  await chrome.runtime.sendMessage({ action: "mergeDuplicateTabGroups" });
+  await renderSafeGroups();
+  await refreshStats();
+  mergeGroupsBtn.disabled = false;
+  mergeGroupsBtn.textContent = "Merge duplicate groups";
+});
 
 // --- Protected sites ---
 

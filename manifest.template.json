@@ -2,9 +2,10 @@
   "manifest_version": 3,
   "name": "Tab Digest",
   "description": "Archives and closes tabs unused for over 24 hours.",
-  "version": "1.1",
+  "version": "1.2",
   "permissions": [
     "tabs",
+    "tabGroups",
     "storage",
     "alarms",
     "identity"

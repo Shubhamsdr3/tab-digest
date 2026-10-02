@@ -7,6 +7,7 @@ A Chrome extension that automatically archives and closes tabs you haven't used 
 - **Daily cleanup** — Detects tabs unused for 24+ hours and archives them to local storage before closing
 - **Manual or automatic** — Trigger a cleanup manually from the popup, or enable daily auto-cleanup
 - **Protected sites** — Add URLs (e.g. `github.com`, `slack`) that should never be closed
+- **Safe tab groups** — Mark a Chrome tab group as safe; every tab in that group is protected until you unmark it
 - **Rich digest page** — Browse archived tabs with favicon, domain, open duration, and last-used time
 - **Expand / collapse** — Digests are grouped by date with collapsible sections
 - **Card actions** — Click a card to reopen the tab, copy its URL, or remove it from the archive
@@ -38,6 +39,7 @@ Click the extension icon to open the popup:
 - **Archive & Close Now** — Saves stale tabs to the digest and closes them
 - **View Past Digests** — Opens the digest page with all archived tabs
 - **Daily auto-cleanup** — Toggle to let the extension run cleanup automatically once a day
+- **Safe Tab Groups** — Mark Chrome tab groups as safe so every tab in them is skipped by cleanup
 - **Protected Sites** — Add domain patterns that should never be auto-closed
 
 ### Digest page
@@ -85,6 +87,7 @@ On first export, Chrome will prompt you to authorize. After that, each click of 
 | Permission | Why |
 |---|---|
 | `tabs` | Query open tabs and close stale ones |
+| `tabGroups` | Read Chrome tab groups so safe groups can protect their tabs |
 | `storage` | Store archived digests and settings |
 | `alarms` | Schedule daily auto-cleanup |
 | `identity` | OAuth2 token for Google Sheets export |
